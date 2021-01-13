@@ -1,0 +1,15 @@
+instance:	sf_e
+pool size n:	1727
+panel size k:	110
+# quota categories:	7
+mean selection probability k/n:	6.4%
+LEGACY minimum probability:	≤ 0.03% (99% upper confidence bound based on Jeffreys interval for a binomial parameter, calculated from sample proportion 0.0000 and sample size 10,000)
+LEXIMIN minimum probability (exact):	2.6%
+gini coefficient of LEGACY:	64.4%
+gini coefficient of LEXIMIN:	51.2%
+geometric mean of LEGACY:	2.2%
+geometric mean of LEXIMIN:	3.9%
+share selected by LEGACY with probability below LEXIMIN minimum selection probability:	48.4%
+Plot of probability allocation created at analysis/sf_e_110_prob_allocs.pdf.
+Plot of ratio products created at analysis/sf_e_110_ratio_product.pdf.
+Out of 3 runs, LEXIMIN took a median running time of 4011.6 seconds.
