@@ -8,6 +8,7 @@ from collections import Counter
 from copy import deepcopy
 from dataclasses import dataclass
 from functools import reduce
+from math import ceil
 from pathlib import Path
 from pickle import load, dump
 from random import seed
@@ -152,7 +153,7 @@ def compute_prob_allocation_stats(alloc: ProbAllocation, cap_for_geometric_mean:
     gini = sum((2 * i - n + 1) * prob for i, prob in enumerate(sorted_probs)) / (n * k)
 
     if cap_for_geometric_mean:
-        capped_probs = [max(prob, 1/10000) for prob in alloc.values()]
+        capped_probs = [max(prob, 1 / 10000) for prob in alloc.values()]
         geometric_mean = gmean(capped_probs)
     else:
         geometric_mean = gmean(sorted_probs)
@@ -228,7 +229,7 @@ def plot_probability_allocations(instance_name: str, instance: Instance, legacy_
     k = instance.k
 
     # fictitious probability allocation where each agent receives equal probability k/n
-    equalized_alloc = {agent_id: k/n for agent_id in agents}
+    equalized_alloc = {agent_id: k / n for agent_id in agents}
 
     data = []
     plot_data = []
@@ -250,8 +251,8 @@ def plot_probability_allocations(instance_name: str, instance: Instance, legacy_
     max_percentile = 100
     restricted_df = df[df['percentile of pool members'] <= max_percentile]
     fig = sns.relplot(data=restricted_df, x="percentile of pool members",
-                    y='selection probability', hue="algorithm", hue_order=("Legacy", "LexiMin", "k/n"), kind="line",
-                    drawstyle='steps-post', height=6, aspect=1.8, legend=False)
+                      y='selection probability', hue="algorithm", hue_order=("Legacy", "LexiMin", "k/n"), kind="line",
+                      drawstyle='steps-post', height=6, aspect=1.8, legend=False)
     fig.set_axis_labels("percentile of pool members (by selection probability)", "selection probability")
 
     plt.xlim(left=0.0, right=max_percentile)
@@ -342,6 +343,80 @@ def plot_ratio_products(instance_name: str, instance: Instance, allocation: Prob
     return plot_path
 
 
+def has_features(agent: Dict[FeatureCategory, Feature], *feature_values):
+    for category, feature in feature_values:
+        if agent[category] != feature:
+            return False
+    return True
+
+
+def get_quota_share(instance: Instance, *feature_values) -> float:
+    quota_share = 1
+    for category, feature in feature_values:
+        mean_quota = (instance.categories[category][feature]["min"] + instance.categories[category][feature]["max"]) / 2
+        quota_share *= mean_quota / instance.k
+    return quota_share
+
+
+def plot_intersectional_representation(instance_name: str, instance: Instance, legacy_alloc: ProbAllocation,
+                                       leximin_alloc: ProbAllocation):
+    """If the instance directory contains an additional table `intersections.csv`, which includes the population shares
+    for a range of 2-feature intersections, produce a plot and report mean squared errors of the different panel/pool/
+    quota shares. If table is not available, return None.
+    Plot is created at ./analysis/[instance_name]_[k]_intersections.pdf .
+    Returns a dictionary of mean squared errors (MSEs) mapping from pairs of shares (e.g.,
+    `("panel share LEGACY" - "population share")`) to the corresponding MSE.
+    """
+    input_directory = Path("data", f"{instance_name}_{instance.k}")
+    assert input_directory.is_dir()
+    intersection_path = input_directory / "intersections.csv"
+    if not intersection_path.exists():
+        return None
+
+    intersection_data = []
+    with open(intersection_path, "r", encoding="utf-8") as file:
+        reader = csv.DictReader(file)
+        for entry in reader:
+            catfeature1 = entry["category 1"], entry["feature 1"]
+            catfeature2 = entry["category 2"], entry["feature 2"]
+            population_share = float(entry["population share"])
+            panel_share_legacy = sum(prob for pers, prob in legacy_alloc.items() if
+                                     has_features(instance.agents[pers], catfeature1, catfeature2)) / instance.k
+            panel_share_leximin = sum(prob for pers, prob in leximin_alloc.items() if
+                                      has_features(instance.agents[pers], catfeature1, catfeature2)) / instance.k
+            pool_share = (sum(1 for agent in instance.agents.values() if has_features(agent, catfeature1, catfeature2))
+                          / len(instance.agents))
+            quota_share = get_quota_share(instance, catfeature1, catfeature2)
+
+            intersection_data.append({"population share": population_share, "panel share LEGACY": panel_share_legacy,
+                                      "panel share LEXIMIN": panel_share_leximin, "pool share": pool_share,
+                                      "quota share": quota_share})
+
+    df = pd.DataFrame(intersection_data)
+    diff_pairs = (("panel share LEXIMIN", "population share"), ("panel share LEGACY", "population share"),
+                  ("panel share LEXIMIN", "pool share"), ("panel share LEGACY", "pool share"),
+                  ("panel share LEXIMIN", "quota share"), ("panel share LEGACY", "quota share"),
+                  ("panel share LEXIMIN", "panel share LEGACY"))
+    errors = {}
+    for share1, share2 in diff_pairs:
+        diff_name = share1 + " - " + share2
+        df[diff_name] = df[share1] - df[share2]
+        errors[(share1, share2)] = (df[diff_name]**2).mean()
+
+    sns.set_style("whitegrid")
+    scale = max(df["panel share LEXIMIN - population share"].abs().max(),
+                df["panel share LEGACY - population share"].abs().max())
+    scale = ceil(scale * 100) / 100
+
+    f = sns.jointplot(data=df, x="panel share LEXIMIN - population share", y="panel share LEGACY - population share")
+    f.ax_joint.set_xlim(-scale, scale)
+    f.ax_joint.set_ylim(-scale, scale)
+    output_path = Path("analysis", f"{instance_name}_{instance.k}_intersections.pdf")
+    f.savefig(output_path)
+
+    return errors
+
+
 def analyze_instance(instance_name: str, instance: Instance, skip_timing: bool = False):
     """Run a full analysis of LEGACY and LEXIMIN on a given instance."""
 
@@ -356,6 +431,7 @@ def analyze_instance(instance_name: str, instance: Instance, skip_timing: bool =
     leximin_stats = compute_prob_allocation_stats(leximin_alloc, False)
 
     analysis_log = open(Path("analysis", f"{instance_name}_{k}_statistics.txt"), "w", encoding="utf-8")
+
     def log(*info):
         print(*info)
         analysis_log.write("\t".join(str(msg) for msg in info) + "\n")
@@ -392,6 +468,12 @@ def analyze_instance(instance_name: str, instance: Instance, skip_timing: bool =
     ratio_product_plot_path = plot_ratio_products(instance_name, instance, legacy_alloc_first_sample, ratio_products)
     log(f"Plot of ratio products created at {ratio_product_plot_path}.")
 
+    intersection_errors = plot_intersectional_representation(instance_name, instance, legacy_alloc_first_sample,
+                                                             leximin_alloc)
+    if intersection_errors is not None:
+        for (share1, share2), error in intersection_errors.items():
+            log(f"MSE({share1}, {share2})", f"{error:.2e}")
+
     if skip_timing:
         log("Skip timing.")
         return
@@ -403,7 +485,7 @@ def analyze_instance(instance_name: str, instance: Instance, skip_timing: bool =
         leximin_probabilities(instance)
         end = time()
         timings.append(end - start)
-        print(f"Run {i+1}/3 of LEXIMIN took {end - start:.1f} seconds.")
+        print(f"Run {i + 1}/3 of LEXIMIN took {end - start:.1f} seconds.")
     timings.sort()
     log(f"Out of 3 runs, LEXIMIN took a median running time of {timings[1]:.1f} seconds.")
 

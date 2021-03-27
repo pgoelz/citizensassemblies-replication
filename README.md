@@ -109,6 +109,28 @@ value for each of the feature categories. For example, this table might look as 
 | female | 18–25   | … |
 | …      | …       | … |
 
+### `intersections.csv` file
+`intersections.csv` is an optional file that gives the prevalence of various two-feature intersection groups in the
+population. For example, this table might look as follows:
+
+| category 1 | feature 1 | category 2 | feature 2 | population share |
+|------------|-----------|------------|-----------|------------------|
+| gender     | female    | age        | 18-25     | 0.151            |
+| gender     | female    | age        | 25-50     | 0.2034           |
+| gender     | male      | age        | 18-25     | 0.156            |
+| …          | …         | …          | …         | …                |
+
+When this table is present, the analysis will automatically include how well the listed intersectional groups are
+represented by the two selection algorithms. This repository already includes one such file in the instance directory
+`sf_e_110` (the categories and respondent files are not included due to privacy reasons). These data are derived from
+the 2016 European Social Survey for the UK, preprocessed as described in Appendix D.2 of the following paper:
+
+> Bailey Flanigan, Paul Gölz, Anupam Gupta, and Ariel Procaccia. Neutralizing self-selection bias in sampling for
+> sortition. NeurIPS 2020. https://paulgoelz.de/papers/endtoend.pdf.
+
+Crucially, the category and feature names have been pseudonymized to match the pseudonymized categories and respondents
+files. 
+
 Calling the Script
 ------------------
 To analyze an instance with name `instance_name` and panel size `panel_size`, run the script as `$ python3 analysis.py
@@ -138,6 +160,7 @@ Calling the script produces all instance statistics mentioned in the paper:
 - geometric mean of LEGACY
 - geometric mean of LEXIMIN
 - share selected by LEGACY with probability below LEXIMIN minimum selection probability
+- mean square errors for the representation of intersectional groups (if the `intersections.csv` file is present)
 - runtime of LEXIMIN algorithm (except if `--skiptiming` is set)
 
 Together with output on the running of LEGACY and LEXIMIN, this information is written out to the console and is
@@ -150,6 +173,9 @@ Additionally, the call to `analysis.py` creates two figures and there correspond
 - `./analysis/[instance_name]_[panel_size]_ratio_product.pdf` is the equivalent to Figure D3, which plots whether pool
   members with more overrepresented features are more rarely selected. The raw data for this plot is saved to
   `./analysis/[instance_name]_[panel_size]_ratio_product_data.csv`.
+
+Finally, if `intersections.cvs` is given, an additional scatter plot is created in
+`./analysis/[instance_name]_[panel_size]_intersections.pdf`, the equivalent of Figure D4.
 
 Demo
 ====
@@ -238,7 +264,8 @@ Skip timing.
 
 Reproduction
 ============
-To reproduce our results, place the directories with the real panel data into `./data/`, and run the following commands:
+To reproduce our results, place the directories with the real panel data into `./data/` (taking care not to remove the
+file `data/sf_e_110/intersections.csv` in the process), and run the following commands:
 ```
 $ python3 analysis.py cca 75
 $ python3 analysis.py hd 30
